@@ -1,56 +1,73 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 
 
-def laplacian(grid: np.ndarray) -> np.ndarray:
+TermFunction = Callable[
+    [np.ndarray, np.ndarray, np.ndarray, Any],
+    np.ndarray,
+]
+
+
+class EquationEngine:
     """
-    Discrete 2D Laplacian using wrapped boundaries.
+    Executes a list of equation terms.
 
-    Interpreted here as attraction / smoothing / local diffusion.
+    Each term receives:
+
+        state
+        delayed
+        strength
+        params
+
+    and returns a grid-shaped update.
+
+    The engine adds all term outputs together and applies them to the current state.
     """
-    return (
-        np.roll(grid, 1, axis=0)
-        + np.roll(grid, -1, axis=0)
-        + np.roll(grid, 1, axis=1)
-        + np.roll(grid, -1, axis=1)
-        - 4 * grid
-    )
 
+    def __init__(self, terms: list[TermFunction] | None = None):
+        self.terms: list[TermFunction] = list(terms or [])
 
-def bi_laplacian(grid: np.ndarray) -> np.ndarray:
-    """
-    Laplacian of the Laplacian.
+    def add_term(self, term: TermFunction) -> None:
+        """
+        Add a new equation term.
+        """
+        self.terms.append(term)
 
-    Used here as a spacing / anti-collapse / repulsion term.
-    """
-    return laplacian(laplacian(grid))
+    def remove_term(self, term_name: str) -> None:
+        """
+        Remove a term by function name.
+        """
+        self.terms = [
+            term for term in self.terms
+            if getattr(term, "__name__", "") != term_name
+        ]
 
+    def evaluate(
+        self,
+        state: np.ndarray,
+        delayed: np.ndarray,
+        strength: np.ndarray,
+        params: Any,
+    ) -> np.ndarray:
+        """
+        Evaluate one full equation step.
+        """
+        update = np.zeros_like(state, dtype=float)
 
-def weighted_neighborhood_average(
-    grid: np.ndarray,
-    strength: np.ndarray,
-    radius: int,
-) -> np.ndarray:
-    """
-    Weighted average over a square neighborhood using wrapped boundaries.
+        for term in self.terms:
+            update += term(state, delayed, strength, params)
 
-    Stronger/stabilized regions influence future behavior more.
-    """
-    total = np.zeros_like(grid, dtype=float)
-    total_weight = np.zeros_like(grid, dtype=float)
+        return state + update
 
-    for di in range(-radius, radius + 1):
-        for dj in range(-radius, radius + 1):
-            shifted_grid = np.roll(np.roll(grid, di, axis=0), dj, axis=1)
-            shifted_weight = np.roll(np.roll(strength, di, axis=0), dj, axis=1)
-            total += shifted_grid * shifted_weight
-            total_weight += shifted_weight
-
-    return total / np.maximum(total_weight, 1e-12)
-
-
-def normalize_grid(grid: np.ndarray) -> np.ndarray:
-    low = np.min(grid)
-    high = np.max(grid)
-    if high - low < 1e-12:
-        return np.zeros_like(grid)
-    return (grid - low) / (high - low)
+    def describe(self) -> list[str]:
+        """
+        Return the active equation term names.
+        """
+        return [
+            getattr(term, "__name__", str(term))
+            for term in self.terms
+        ]
