@@ -1,72 +1,65 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-
-def plot_snapshots(snapshots, title="Emergent Simulation", save_path=None):
-    """
-    Plot a row of snapshots.
-    """
-    if not snapshots:
-        raise ValueError("No snapshots to plot.")
-
-    fig, axs = plt.subplots(1, len(snapshots), figsize=(4 * len(snapshots), 4))
-
-    if len(snapshots) == 1:
-        axs = [axs]
-
-    for i, snap in enumerate(snapshots):
-        axs[i].imshow(snap, cmap="viridis")
-        axs[i].set_title(f"Frame {i}")
-        axs[i].axis("off")
-
-    plt.suptitle(title)
-    plt.tight_layout()
-
-    if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=160)
-
-    return fig
+from emergent import Params, Simulation
+from emergent.execution import EquationEngine
+from emergent import terms
+from emergent.utils import plot_snapshots
 
 
-def plot_metrics(metrics, save_path=None):
-    """
-    Plot standard deviation and collapse count over time.
-    """
-    if not metrics:
-        raise ValueError("No metrics to plot.")
+def run_mode(name: str, engine: EquationEngine, params: Params):
+    sim = Simulation(
+        size=80,
+        params=params,
+        engine=engine,
+    )
 
-    steps = [m["step"] for m in metrics]
-    std = [m["std"] for m in metrics]
-    collapses = [m["collapse_count"] for m in metrics]
+    snapshots = sim.run(
+        steps=250,
+        capture_steps=[50, 100, 150, 250],
+    )
 
-    fig, ax1 = plt.subplots(figsize=(9, 4))
+    plot_snapshots(
+        snapshots,
+        title=f"Mode: {name}",
+        save_path=f"outputs/{name.lower().replace(' ', '_')}.png",
+    )
 
-    ax1.plot(steps, std)
-    ax1.set_xlabel("Step")
-    ax1.set_ylabel("State Std Dev")
-
-    ax2 = ax1.twinx()
-    ax2.plot(steps, collapses, linestyle="--")
-    ax2.set_ylabel("Collapse Count")
-
-    plt.title("System Activity Metrics")
-    plt.tight_layout()
-
-    if save_path:
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=160)
-
-    return fig
+    print(f"{name} final metrics:", sim.metrics[-1])
 
 
-def save_array(array: np.ndarray, path):
-    """
-    Save a numpy array.
-    """
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    np.save(path, array)
+def main():
+    params = Params(
+        alpha=0.60,
+        beta=0.40,
+        gamma=0.25,
+        delta=0.20,
+        delay=3,
+        noise=0.01,
+        instability_threshold=0.25,
+        seed=42,
+    )
+
+    modes = {
+        "Attraction Only": EquationEngine([
+            terms.diffusion_term,
+        ]),
+        "Repulsion Only": EquationEngine([
+            terms.repulsion_term,
+        ]),
+        "Attraction Repulsion": EquationEngine([
+            terms.diffusion_term,
+            terms.repulsion_term,
+        ]),
+        "Layered Full": EquationEngine([
+            terms.local_attraction_long_repulsion_term,
+            terms.nonlinear_amplification_term,
+            terms.delay_term,
+        ]),
+    }
+
+    for name, engine in modes.items():
+        run_mode(name, engine, params)
+
+
+if __name__ == "__main__":
+    main()
