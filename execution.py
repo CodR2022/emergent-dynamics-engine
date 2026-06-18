@@ -1,73 +1,56 @@
-from .core import laplacian, bi_laplacian, weighted_neighborhood_average
+import numpy as np
 
 
-def diffusion_term(state, delayed, strength, params):
+def laplacian(grid: np.ndarray) -> np.ndarray:
     """
-    Local attraction / smoothing.
+    Discrete 2D Laplacian using wrapped boundaries.
 
-    Pulls neighboring values toward local coherence.
+    Interpreted here as attraction / smoothing / local diffusion.
     """
-    return params.alpha * laplacian(delayed)
+    return (
+        np.roll(grid, 1, axis=0)
+        + np.roll(grid, -1, axis=0)
+        + np.roll(grid, 1, axis=1)
+        + np.roll(grid, -1, axis=1)
+        - 4 * grid
+    )
 
 
-def repulsion_term(state, delayed, strength, params):
+def bi_laplacian(grid: np.ndarray) -> np.ndarray:
     """
-    Anti-collapse / spacing term.
+    Laplacian of the Laplacian.
 
-    Prevents everything from collapsing into one center.
+    Used here as a spacing / anti-collapse / repulsion term.
     """
-    return -params.beta * bi_laplacian(delayed)
+    return laplacian(laplacian(grid))
 
 
-def nonlinear_amplification_term(state, delayed, strength, params):
+def weighted_neighborhood_average(
+    grid: np.ndarray,
+    strength: np.ndarray,
+    radius: int,
+) -> np.ndarray:
     """
-    Nonlinear amplification.
+    Weighted average over a square neighborhood using wrapped boundaries.
 
-    Strong local values reinforce themselves and can create attractor-like centers.
+    Stronger/stabilized regions influence future behavior more.
     """
-    return params.gamma * (state ** 2)
+    total = np.zeros_like(grid, dtype=float)
+    total_weight = np.zeros_like(grid, dtype=float)
+
+    for di in range(-radius, radius + 1):
+        for dj in range(-radius, radius + 1):
+            shifted_grid = np.roll(np.roll(grid, di, axis=0), dj, axis=1)
+            shifted_weight = np.roll(np.roll(strength, di, axis=0), dj, axis=1)
+            total += shifted_grid * shifted_weight
+            total_weight += shifted_weight
+
+    return total / np.maximum(total_weight, 1e-12)
 
 
-def delay_term(state, delayed, strength, params):
-    """
-    Finite propagation / delayed communication.
-
-    Nodes respond to older information, not the instantaneous present.
-    This prevents perfect synchronization and keeps dynamics alive.
-    """
-    return -params.delta * (state - delayed)
-
-
-def local_attraction_long_repulsion_term(state, delayed, strength, params):
-    """
-    Layered neighborhood interaction.
-
-    Local attraction plus longer-range repulsion creates stable spacing,
-    repeated structures, and particle-like clusters.
-    """
-    local = weighted_neighborhood_average(delayed, strength, params.local_radius)
-    distant = weighted_neighborhood_average(delayed, strength, params.long_radius)
-    return (local - state) * params.alpha - (distant - local) * params.beta
-
-
-def damping_term(state, delayed, strength, params):
-    """
-    Soft damping.
-
-    Useful for preventing runaway growth in parameter experiments.
-    """
-    return -0.01 * state
-
-
-DEFAULT_TERMS = [
-    diffusion_term,
-    repulsion_term,
-    nonlinear_amplification_term,
-    delay_term,
-]
-
-LAYERED_TERMS = [
-    local_attraction_long_repulsion_term,
-    nonlinear_amplification_term,
-    delay_term,
-]
+def normalize_grid(grid: np.ndarray) -> np.ndarray:
+    low = np.min(grid)
+    high = np.max(grid)
+    if high - low < 1e-12:
+        return np.zeros_like(grid)
+    return (grid - low) / (high - low)

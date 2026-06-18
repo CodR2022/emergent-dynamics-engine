@@ -1,56 +1,26 @@
-import numpy as np
+from dataclasses import dataclass
 
 
-def laplacian(grid: np.ndarray) -> np.ndarray:
+@dataclass
+class Params:
     """
-    Discrete 2D Laplacian using wrapped boundaries.
-
-    Interpreted here as attraction / smoothing / local diffusion.
+    Parameters controlling the emergent system.
     """
-    return (
-        np.roll(grid, 1, axis=0)
-        + np.roll(grid, -1, axis=0)
-        + np.roll(grid, 1, axis=1)
-        + np.roll(grid, -1, axis=1)
-        - 4 * grid
-    )
 
+    alpha: float = 0.60
+    beta: float = 0.40
+    gamma: float = 0.30
+    delta: float = 0.20
+    delay: int = 3
 
-def bi_laplacian(grid: np.ndarray) -> np.ndarray:
-    """
-    Laplacian of the Laplacian.
+    noise: float = 0.01
+    instability_threshold: float = 0.25
 
-    Used here as a spacing / anti-collapse / repulsion term.
-    """
-    return laplacian(laplacian(grid))
+    strength_learning_rate: float = 0.05
+    strength_min: float = 0.10
+    strength_max: float = 3.00
 
+    local_radius: int = 1
+    long_radius: int = 3
 
-def weighted_neighborhood_average(
-    grid: np.ndarray,
-    strength: np.ndarray,
-    radius: int,
-) -> np.ndarray:
-    """
-    Weighted average over a square neighborhood using wrapped boundaries.
-
-    Stronger/stabilized regions influence future behavior more.
-    """
-    total = np.zeros_like(grid, dtype=float)
-    total_weight = np.zeros_like(grid, dtype=float)
-
-    for di in range(-radius, radius + 1):
-        for dj in range(-radius, radius + 1):
-            shifted_grid = np.roll(np.roll(grid, di, axis=0), dj, axis=1)
-            shifted_weight = np.roll(np.roll(strength, di, axis=0), dj, axis=1)
-            total += shifted_grid * shifted_weight
-            total_weight += shifted_weight
-
-    return total / np.maximum(total_weight, 1e-12)
-
-
-def normalize_grid(grid: np.ndarray) -> np.ndarray:
-    low = np.min(grid)
-    high = np.max(grid)
-    if high - low < 1e-12:
-        return np.zeros_like(grid)
-    return (grid - low) / (high - low)
+    seed: int | None = None
