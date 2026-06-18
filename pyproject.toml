@@ -1,2 +1,18 @@
-numpy
-matplotlib
+[project]
+name = "emergent-dynamics-engine"
+version = "0.1.0"
+description = "A modular Python simulation engine for emergent field dynamics."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["emergent*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
