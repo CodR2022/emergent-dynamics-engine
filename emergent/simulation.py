@@ -1,73 +1,121 @@
-from .core import laplacian, bi_laplacian, weighted_neighborhood_average
+from __future__ import annotations
+
+import numpy as np
+
+from .params import Params
+from .execution import EquationEngine
+from .terms import DEFAULT_TERMS, LAYERED_TERMS
+from .core import normalize_grid
 
 
-def diffusion_term(state, delayed, strength, params):
+class Simulation:
     """
-    Local attraction / smoothing.
-
-    Pulls neighboring values toward local coherence.
+    Main emergent system simulation.
     """
-    return params.alpha * laplacian(delayed)
 
+    def __init__(
+        self,
+        size: int = 80,
+        params: Params | None = None,
+        engine: EquationEngine | None = None,
+        mode: str = "layered",
+    ):
+        self.size = size
+        self.params = params or Params()
+        self.rng = np.random.default_rng(self.params.seed)
 
-def repulsion_term(state, delayed, strength, params):
-    """
-    Anti-collapse / spacing term.
+        self.state = self.rng.random((size, size))
+        self.strength = np.ones((size, size), dtype=float) * 0.5
+        self.history: list[np.ndarray] = []
 
-    Prevents everything from collapsing into one center.
-    """
-    return -params.beta * bi_laplacian(delayed)
+        if engine is not None:
+            self.engine = engine
+        elif mode == "layered":
+            self.engine = EquationEngine(LAYERED_TERMS)
+        elif mode == "default":
+            self.engine = EquationEngine(DEFAULT_TERMS)
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
+        self.step_count = 0
+        self.metrics = []
 
-def nonlinear_amplification_term(state, delayed, strength, params):
-    """
-    Nonlinear amplification.
+    def delayed_state(self):
+        if len(self.history) > self.params.delay:
+            return self.history[-self.params.delay]
+        return self.state
 
-    Strong local values reinforce themselves and can create attractor-like centers.
-    """
-    return params.gamma * (state ** 2)
+    def apply_entropy_noise(self, grid):
+        if self.params.noise <= 0:
+            return grid
+        return grid + self.rng.normal(0, self.params.noise, size=grid.shape)
 
+    def apply_instability_collapse(self, new_state):
+        diff = np.abs(new_state - self.state)
+        mask = diff > self.params.instability_threshold
 
-def delay_term(state, delayed, strength, params):
-    """
-    Finite propagation / delayed communication.
+        if np.any(mask):
+            new_state = new_state.copy()
+            new_state[mask] = self.rng.random(np.sum(mask))
 
-    Nodes respond to older information, not the instantaneous present.
-    This prevents perfect synchronization and keeps dynamics alive.
-    """
-    return -params.delta * (state - delayed)
+        return new_state, diff, int(np.sum(mask))
 
+    def update_strength(self, diff):
+        self.strength += self.params.strength_learning_rate - diff
+        self.strength = np.clip(
+            self.strength,
+            self.params.strength_min,
+            self.params.strength_max,
+        )
 
-def local_attraction_long_repulsion_term(state, delayed, strength, params):
-    """
-    Layered neighborhood interaction.
+    def collect_metrics(self, collapse_count):
+        metric = {
+            "step": self.step_count,
+            "mean": float(np.mean(self.state)),
+            "std": float(np.std(self.state)),
+            "min": float(np.min(self.state)),
+            "max": float(np.max(self.state)),
+            "strength_mean": float(np.mean(self.strength)),
+            "strength_max": float(np.max(self.strength)),
+            "collapse_count": collapse_count,
+        }
 
-    Local attraction plus longer-range repulsion creates stable spacing,
-    repeated structures, and particle-like clusters.
-    """
-    local = weighted_neighborhood_average(delayed, strength, params.local_radius)
-    distant = weighted_neighborhood_average(delayed, strength, params.long_radius)
-    return (local - state) * params.alpha - (distant - local) * params.beta
+        self.metrics.append(metric)
+        return metric
 
+    def step(self):
+        self.history.append(self.state.copy())
 
-def damping_term(state, delayed, strength, params):
-    """
-    Soft damping.
+        delayed = self.delayed_state()
 
-    Useful for preventing runaway growth in parameter experiments.
-    """
-    return -0.01 * state
+        new_state = self.engine.evaluate(
+            self.state,
+            delayed,
+            self.strength,
+            self.params,
+        )
 
+        new_state = self.apply_entropy_noise(new_state)
+        new_state, diff, collapse_count = self.apply_instability_collapse(new_state)
 
-DEFAULT_TERMS = [
-    diffusion_term,
-    repulsion_term,
-    nonlinear_amplification_term,
-    delay_term,
-]
+        self.update_strength(diff)
 
-LAYERED_TERMS = [
-    local_attraction_long_repulsion_term,
-    nonlinear_amplification_term,
-    delay_term,
-]
+        self.state = new_state
+        self.step_count += 1
+
+        return self.collect_metrics(collapse_count)
+
+    def run(self, steps: int = 300, capture_steps=None):
+        capture_steps = set(capture_steps or [])
+        snapshots = []
+
+        for _ in range(steps):
+            metric = self.step()
+
+            if metric["step"] in capture_steps:
+                snapshots.append(self.normalized_state().copy())
+
+        return snapshots
+
+    def normalized_state(self):
+        return normalize_grid(self.state)
