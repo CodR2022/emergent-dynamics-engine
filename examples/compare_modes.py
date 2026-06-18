@@ -1,4 +1,4 @@
-from **future** import annotations
+from __future__ import annotations
 
 from emergent import Params, Simulation
 from emergent.execution import EquationEngine
